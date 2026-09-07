@@ -1,0 +1,10 @@
+import {z} from 'zod';
+import {CATEGORIES} from './finance';
+const ids=CATEGORIES.map(c=>c.id) as [typeof CATEGORIES[number]['id'],...typeof CATEGORIES[number]['id'][]];
+export const cents=z.number().int().min(-100000000000).max(100000000000);
+export const positiveCents=cents.min(0);
+export const monthKey=z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])$/);
+export const amounts=z.record(z.enum(ids),cents.nullable());
+export const monthSchema=z.object({month:monthKey,planned:amounts,actual:amounts,status:z.enum(['draft','closed']),otherInvestments:cents,version:z.number().int().min(0)}).strict();
+export const settingsSchema=z.object({monthlyGoal:positiveCents,emergencyGoal:positiveCents.nullable(),businessGoal:positiveCents.nullable(),emergencyOpening:positiveCents,businessOpening:positiveCents,startMonth:monthKey,kinds:z.record(z.enum(ids),z.enum(['expense','income','saving','neutral']))}).strict();
+export const settingsRequest=z.object({settings:settingsSchema,version:z.number().int().min(1)}).strict();

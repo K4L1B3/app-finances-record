@@ -1,0 +1,30 @@
+{
+  "name": "meu-financeiro",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build --webpack",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "setup": "node scripts/setup.mjs"
+  },
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "dependencies": {
+    "lucide-react": "1.42.0",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,4 @@
+import {authenticated,validOrigin} from './auth';
+export function json(data:unknown,status=200){return Response.json(data,{status,headers:{'Cache-Control':'no-store'}});}
+export async function guard(request:Request,mutate=false){if(!await authenticated())return json({error:'Sua sessão expirou. Entre novamente.'},401);if(mutate&&!validOrigin(request))return json({error:'Origem da solicitação não permitida.'},403);return null;}
+export async function readJson(request:Request,max=50000){if(!request.headers.get('content-type')?.startsWith('application/json'))throw new Error('Formato de solicitação inválido.');const reader=request.body?.getReader();if(!reader)throw new Error('Corpo vazio.');const chunks:Uint8Array[]=[];let size=0;while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>max){await reader.cancel();throw new Error('Solicitação muito grande.');}chunks.push(value);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
