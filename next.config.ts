@@ -3,7 +3,6 @@ const dev = process.env.NODE_ENV !== 'production';
 const config: NextConfig = {
   output: 'standalone',
   poweredByHeader: false,
-  serverExternalPackages: ['node:sqlite'],
   async headers() {
     return [{ source: '/:path*', headers: [
       {key: 'X-Content-Type-Options', value: 'nosniff'},

@@ -1,30 +1,96 @@
-import {DatabaseSync} from 'node:sqlite';
-import {mkdirSync} from 'node:fs';
-import {dirname,resolve} from 'node:path';
-import {DEFAULT_SETTINGS,type Month,type Settings,type Store} from './finance';
-let connection:DatabaseSync|undefined;
-export function db(){
- if(connection)return connection;
- const path=resolve(process.env.DATABASE_PATH||'data/financeiro.sqlite');mkdirSync(dirname(path),{recursive:true});
- connection=new DatabaseSync(path,{timeout:5000});
- connection.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
- CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL,version INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS months(month TEXT PRIMARY KEY,data TEXT NOT NULL,version INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,expires INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS login_attempts(id INTEGER PRIMARY KEY CHECK(id=1),count INTEGER NOT NULL,reset_at INTEGER NOT NULL);
- `);
- connection.prepare('INSERT OR IGNORE INTO settings(id,data,version) VALUES(1,?,1)').run(JSON.stringify(DEFAULT_SETTINGS));
- return connection;
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { DEFAULT_SETTINGS, type Month, type Settings, type Store } from './finance';
+
+export class ConflictError extends Error {}
+
+export async function getStore(supabase: SupabaseClient, userId: string): Promise<Store> {
+  let { data: settingsRow, error: settingsError } = await supabase
+    .from('settings')
+    .select('data, version')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (settingsError) throw settingsError;
+
+  if (!settingsRow) {
+    const { data: inserted, error: insertError } = await supabase
+      .from('settings')
+      .insert({ user_id: userId, data: DEFAULT_SETTINGS, version: 1 })
+      .select('data, version')
+      .single();
+    if (insertError) throw insertError;
+    settingsRow = inserted;
+  }
+
+  const { data: monthRows, error: monthsError } = await supabase
+    .from('months')
+    .select('data, version')
+    .eq('user_id', userId)
+    .order('month');
+  if (monthsError) throw monthsError;
+
+  return {
+    settings: settingsRow.data as Settings,
+    settingsVersion: settingsRow.version as number,
+    months: (monthRows ?? []).map(
+      (row) => ({ ...(row.data as Month), version: row.version as number }) as Month,
+    ),
+  };
 }
-export function getStore():Store {
- const s=db().prepare('SELECT data,version FROM settings WHERE id=1').get()!;
- return {settings:JSON.parse(s.data as string) as Settings,settingsVersion:s.version as number,months:db().prepare('SELECT data,version FROM months ORDER BY month').all().map(row=>({...JSON.parse(row.data as string),version:row.version}) as Month)};
+
+export async function writeMonth(supabase: SupabaseClient, userId: string, month: Month) {
+  if (month.version === 0) {
+    const created = { ...month, version: 1 };
+    const { data, error } = await supabase
+      .from('months')
+      .insert({ user_id: userId, month: month.month, data: created, version: 1 })
+      .select('data, version')
+      .single();
+    if (error) {
+      if (error.code === '23505') {
+        throw new ConflictError(
+          'Este mês foi criado em outra aba. Recarregue os dados antes de salvar novamente.',
+        );
+      }
+      throw error;
+    }
+    return { ...(data.data as Month), version: data.version as number };
+  }
+
+  const next = { ...month, version: month.version + 1 };
+  const { data, error } = await supabase
+    .from('months')
+    .update({ data: next, version: next.version })
+    .eq('user_id', userId)
+    .eq('month', month.month)
+    .eq('version', month.version)
+    .select('data, version')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw new ConflictError(
+      'Este mês foi alterado em outra aba. Recarregue os dados antes de salvar novamente.',
+    );
+  }
+  return { ...(data.data as Month), version: data.version as number };
 }
-export class ConflictError extends Error{}
-export function writeMonth(month:Month){
- const connection=db();connection.exec('BEGIN IMMEDIATE');
- try{const previous=connection.prepare('SELECT version FROM months WHERE month=?').get(month.month);if((previous?.version??0)!==month.version)throw new ConflictError('Este mês foi alterado em outra aba. Recarregue os dados antes de salvar novamente.');
- const next={...month,version:month.version+1};connection.prepare('INSERT INTO months(month,data,version) VALUES(?,?,?) ON CONFLICT(month) DO UPDATE SET data=excluded.data,version=excluded.version').run(month.month,JSON.stringify(next),next.version);connection.exec('COMMIT');return next;
- }catch(e){connection.exec('ROLLBACK');throw e;}
+
+export async function writeSettings(
+  supabase: SupabaseClient,
+  userId: string,
+  settings: Settings,
+  version: number,
+) {
+  const nextVersion = version + 1;
+  const { data, error } = await supabase
+    .from('settings')
+    .update({ data: settings, version: nextVersion, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('version', version)
+    .select('version')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw new ConflictError('As configurações foram alteradas em outra aba. Recarregue antes de salvar.');
+  }
+  return data.version as number;
 }
-export function writeSettings(settings:Settings,version:number){const result=db().prepare('UPDATE settings SET data=?,version=version+1 WHERE id=1 AND version=?').run(JSON.stringify(settings),version);if(!result.changes)throw new ConflictError('As configurações foram alteradas em outra aba. Recarregue antes de salvar.');return version+1;}
