@@ -1,5 +1,14 @@
-import {authenticated} from '@/lib/auth';
+import { createClient } from '@/lib/supabase/server';
 import FinanceApp from '@/components/finance-app';
 import Login from '@/components/login';
-export const dynamic='force-dynamic';export const runtime='nodejs';
-export default async function Page(){return await authenticated()?<FinanceApp/>:<Login/>;}
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export default async function Page() {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    return data.user ? <FinanceApp /> : <Login />;
+  } catch {
+    return <Login />;
+  }
+}
