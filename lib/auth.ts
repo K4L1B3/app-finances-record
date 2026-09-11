@@ -20,4 +20,5 @@ export async function login(username:string,password:string){
  (await cookies()).set(COOKIE,token,{httpOnly:true,secure:c.origin.startsWith('https:'),sameSite:'strict',path:'/',maxAge:LIFE});return 'ok' as const;
 }
 export async function logout(){const jar=await cookies(),token=jar.get(COOKIE)?.value;if(token)db().prepare('DELETE FROM sessions WHERE token_hash=?').run(tokenHash(token));jar.delete(COOKIE);}
-export function validOrigin(request:Request){return request.headers.get('origin')===authConfig().origin;}
+// ponytail: aceita também o próprio host do request (127.0.0.1, IP da rede, túnel) além do APP_URL; quem barra CSRF de verdade é o cookie sameSite:'strict'.
+export function validOrigin(request:Request){const origin=request.headers.get('origin');if(!origin)return false;if(origin===authConfig().origin)return true;try{return new URL(origin).host===request.headers.get('host');}catch{return false;}}
