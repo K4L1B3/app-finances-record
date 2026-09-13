@@ -10,9 +10,10 @@ export async function PUT(request: Request) {
     if (!parsed.success) return json({ error: 'Confira as metas e os saldos informados.' }, 400);
     const { settings, version } = parsed.data;
     const old = await getStore(g.supabase, g.userId);
-    if (old.months.length && settings.startMonth !== old.settings.startMonth) {
+    // Moving the start earlier is allowed (retroactive months); later than the first saved month would orphan it.
+    if (old.months.length && settings.startMonth > old.months[0].month) {
       return json(
-        { error: 'A data inicial não pode mudar depois de salvar meses. Os saldos iniciais pertencem a essa data.' },
+        { error: 'O início do acompanhamento não pode ser posterior ao primeiro mês salvo.' },
         400,
       );
     }
