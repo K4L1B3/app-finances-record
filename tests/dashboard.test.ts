@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {budgetComparison, cashFlow, categorySpending, projectionBaseline} from '../lib/dashboard';
+import {budgetComparison, cashFlow, categorySpending, niceScale, projectionBaseline} from '../lib/dashboard';
 import {blankMonth, CATEGORIES, DEFAULT_SETTINGS, type Month, type Store} from '../lib/finance';
 const settings = {...DEFAULT_SETTINGS, startMonth:'2026-01'};
 function complete(date: string, income=100000, expense=50000, saving=10000): Month {
@@ -32,6 +32,10 @@ test('fluxo exclui meses parciais, marca lacunas e trata resgates e saldo negati
 test('janela de 12 meses preserva acumulado anterior e ignora registros futuros',()=>{
  const points=cashFlow(store([complete('2026-01'),complete('2027-01'),complete('2028-01')]),'2027-01');
  assert.equal(points.length,12);assert.equal(points[0].month,'2026-02');assert.equal(points[0].opening,40000);assert.equal(points.at(-1)?.closing,80000);
+});
+test('eixo usa marcas redondas e só desce abaixo de zero com saldo negativo',()=>{
+ assert.deepEqual(niceScale(0,365000).ticks,[0,100000,200000,300000,400000]);
+ assert.deepEqual(niceScale(-40000,40000).ticks,[-40000,-20000,0,20000,40000]);
 });
 test('projeção usa apenas meses fechados anteriores e prefere plano completo',()=>{
  const a=complete('2026-01'),b=complete('2026-02',200000),future=complete('2026-04',900000),partial=blankMonth('2026-03',settings);

@@ -1,7 +1,7 @@
 'use client';
-import {useState} from 'react';
+import {useCallback, useState} from 'react';
 import {brl, compact, inputAmount, monthLabel, parseAmount, shiftMonth, type Month, type Settings, type Store} from '@/lib/finance';
-import {budgetComparison, cashFlow, categorySpending, projectionBaseline} from '@/lib/dashboard';
+import {budgetComparison, cashFlow, categorySpending, niceScale, projectionBaseline} from '@/lib/dashboard';
 
 const COLORS = ['#7759df','#299d88','#df9940','#de688a','#518bc9','#977449','#9980c9','#718b46','#c26349','#4a9eae','#bd6bad','#8885a4','#779f9b','#a19b51','#8278b7','#bb8876','#758597'];
 const pct = (value: number) => new Intl.NumberFormat('pt-BR', {style:'percent', maximumFractionDigits:1}).format(value);
@@ -33,15 +33,22 @@ export function BudgetBars({month, settings}: {month: Month; settings: Settings}
 export function CashCandles({store, month, onMonth}: {store: Store; month: string; onMonth: (m: string) => void}) {
   const data = cashFlow(store, month), known = data.filter(d => d.stats), [selected, setSelected] = useState(month);
   const active = data.find(d => d.month === selected) ?? data.at(-1);
+  // SVG units = CSS pixels (viewBox tracks the measured width), so text stays 11–12px at any panel width.
+  const [width, setWidth] = useState(780);
+  const measure = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(570, Math.round(entry.contentRect.width))));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const values = known.flatMap(d => [d.opening, d.closing]);
-  const low = Math.min(0, ...values), high = Math.max(100, ...values), padding = (high-low)*.12;
-  const min = low-padding, max = high+padding;
+  const {min, max, ticks} = niceScale(Math.min(0, ...values), Math.max(10000, ...values));
   const y = (value: number) => 245-(value-min)/(max-min)*205;
-  const step = 660 / Math.max(1,data.length);
+  const step = (width-120) / Math.max(1,data.length);
   return <section className="panel cash-panel"><div className="panel-heading"><div><h2>Seu fluxo de caixa, mês a mês</h2><span className="muted">Acumulado das sobras após despesas e aportes · até 12 meses</span></div></div>
-    {!known.length ? <p className="chart-empty">Preencha todas as categorias do primeiro mês para visualizar a evolução. Use zero quando não houve movimento.</p> : <><div className="chart-legend dashboard-legend"><span><i style={{background:'var(--green)'}}/>Sobrou no mês</span><span><i style={{background:'var(--red)'}}/>Saiu mais do que entrou</span></div><div className="cash-scroll"><svg viewBox="0 0 780 295" role="group" aria-label="Variação mensal do saldo acumulado. Selecione um mês para consultar entradas e saídas.">{[0,.25,.5,.75,1].map(f => {const v=min+(max-min)*f;return <g key={f}><line x1="90" x2="755" y1={y(v)} y2={y(v)} stroke="var(--line)" strokeDasharray="4 5"/><text x="80" y={y(v)+4} textAnchor="end" fill="var(--muted)" fontSize="12">{compact(v)}</text></g>;})}<line x1="90" x2="755" y1={y(0)} y2={y(0)} stroke="var(--muted)"/>{data.map((d, i) => {
-      const x=95+(i+.5)*step, width=Math.min(28,step*.48), positive=(d.stats?.balance ?? 0)>=0;
-      return <g key={d.month} role="button" tabIndex={0} aria-pressed={active?.month===d.month} aria-label={`${monthLabel(d.month)}: ${d.stats ? `entradas ${brl(d.stats.income)}, despesas ${brl(d.stats.expenses)}, aportes líquidos ${brl(d.stats.invested)}, sobra ${brl(d.stats.balance)}` : 'dados incompletos'}`} onClick={() => setSelected(d.month)} onKeyDown={e => {if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelected(d.month);}}} className="cash-candle"><rect x={x-step/2+2} y="18" width={step-4} height="255" rx="8" fill={active?.month===d.month?'var(--purple-light)':'transparent'}/>{d.stats ? <><rect x={x-width/2} y={Math.min(y(d.opening),y(d.closing))} width={width} height={Math.max(2,Math.abs(y(d.opening)-y(d.closing)))} rx="3" fill={positive?'var(--green)':'var(--red)'}/><line x1={x-width/2-5} x2={x} y1={y(d.opening)} y2={y(d.opening)} stroke="var(--ink)"/><line x1={x} x2={x+width/2+5} y1={y(d.closing)} y2={y(d.closing)} stroke="var(--ink)"/></> : <text x={x} y="150" textAnchor="middle" fill="var(--muted)">—</text>}<text x={x} y="285" textAnchor="middle" fill="var(--muted)" fontSize="11">{d.month.slice(5)}/{d.month.slice(2,4)}</text></g>;
+    {!known.length ? <p className="chart-empty">Preencha todas as categorias do primeiro mês para visualizar a evolução. Use zero quando não houve movimento.</p> : <><div className="chart-legend dashboard-legend"><span><i style={{background:'var(--green)'}}/>Sobrou no mês</span><span><i style={{background:'var(--red)'}}/>Saiu mais do que entrou</span></div><div className="cash-scroll" ref={measure}><svg viewBox={`0 0 ${width} 295`} height="295" role="group" aria-label="Variação mensal do saldo acumulado. Selecione um mês para consultar entradas e saídas.">{ticks.map(v => <g key={v}><line x1="90" x2={width-25} y1={y(v)} y2={y(v)} stroke="var(--line)" strokeDasharray="4 5"/><text x="80" y={y(v)+4} textAnchor="end" fill="var(--muted)" fontSize="12">{compact(v)}</text></g>)}<line x1="90" x2={width-25} y1={y(0)} y2={y(0)} stroke="var(--muted)"/>{data.map((d, i) => {
+      const x=95+(i+.5)*step, bar=Math.min(40,step*.48), positive=(d.stats?.balance ?? 0)>=0;
+      return <g key={d.month} role="button" tabIndex={0} aria-pressed={active?.month===d.month} aria-label={`${monthLabel(d.month)}: ${d.stats ? `entradas ${brl(d.stats.income)}, despesas ${brl(d.stats.expenses)}, aportes líquidos ${brl(d.stats.invested)}, sobra ${brl(d.stats.balance)}` : 'dados incompletos'}`} onClick={() => setSelected(d.month)} onKeyDown={e => {if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelected(d.month);}}} className="cash-candle"><rect x={x-step/2+2} y="18" width={step-4} height="255" rx="8" fill="var(--purple)" fillOpacity={active?.month===d.month?.12:0}/>{d.stats ? <rect x={x-bar/2} y={Math.min(y(d.opening),y(d.closing))} width={bar} height={Math.max(2,Math.abs(y(d.opening)-y(d.closing)))} rx="3" fill={positive?'var(--green)':'var(--red)'}/> : <text x={x} y="150" textAnchor="middle" fill="var(--muted)">—</text>}<text x={x} y="285" textAnchor="middle" fill="var(--muted)" fontSize="11">{d.month.slice(5)}/{d.month.slice(2,4)}</text></g>;
     })}</svg></div></>}
     {active && <div className="cash-detail"><div><strong className="capitalize">{monthLabel(active.month,true)}</strong><button className="text-button" onClick={() => onMonth(active.month)}>Abrir mês →</button></div>{active.stats ? <dl>{[['Entradas',active.stats.income],['Despesas',active.stats.expenses],['Aportes líquidos',active.stats.invested],['Sobra do mês',active.stats.balance],['Acumulado anterior',active.opening],['Acumulado final',active.closing]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{brl(value as number)}</dd></div>)}</dl> : <p className="muted">Mês ausente ou incompleto; não entra no acumulado.</p>}</div>}
     <p className="chart-note">Cada corpo liga o acumulado anterior ao final do mês, sem máximas ou mínimas diárias. Base zero no início do acompanhamento; soma apenas meses completos e não representa o saldo bancário. Aportes negativos são resgates.</p>

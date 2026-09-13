@@ -34,6 +34,14 @@ export function cashFlow(store: Store, through: string) {
   return result;
 }
 
+// Axis ticks on 1/2/2.5/5 × 10ⁿ steps so labels read as round money, never below zero unless data is.
+export function niceScale(low: number, high: number, count = 4) {
+  const raw = (high - low) / count || 1, magnitude = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(f => f * magnitude).find(s => s >= raw)!;
+  const min = Math.floor(low / step) * step, max = Math.ceil(high / step) * step;
+  return {min, max, ticks: Array.from({length: Math.round((max - min) / step) + 1}, (_, i) => min + i * step)};
+}
+
 export function projectionBaseline(store: Store, through: string) {
   const next = store.months.find(m => m.month === shiftMonth(through, 1));
   const planComplete = next && CATEGORIES.every(c => store.settings.kinds[c.id] === 'neutral' || next.planned[c.id] !== null);
